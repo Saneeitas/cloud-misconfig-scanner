@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cloud-misconfig-scanner"
+version = "0.1.0"
+description = "Multi-cloud security misconfiguration scanner (AWS + Azure) — strictly read-only"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "click>=8.0",
+    "rich>=13.0",
+    "boto3>=1.28",
+    "azure-mgmt-storage>=21.0",
+    "azure-mgmt-network>=25.0",
+    "azure-mgmt-keyvault>=10.0",
+    "azure-mgmt-authorization>=4.0",
+    "azure-mgmt-security>=6.0",
+    "azure-identity>=1.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "moto[s3,iam,ec2,cloudtrail]>=4.0",
+    "ruff>=0.1",
+    "mypy>=1.5",
+    "boto3-stubs[s3,iam,ec2,cloudtrail]",
+]
+
+[project.scripts]
+scanner = "scanner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
