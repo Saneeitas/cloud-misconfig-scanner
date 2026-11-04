@@ -1,9 +1,13 @@
 """AWS-S3-001: S3 bucket policy allows public/wildcard principal access.
 
-A bucket policy with Principal: "*" or Principal: {"AWS": "*"} grants access
-to any unauthenticated or authenticated entity on the internet. This is the
-#1 cause of accidental S3 data exposure — high-profile breaches (Capital One,
-Twitch) trace back to overly permissive bucket policies.
+An Allow statement with Principal: "*" or Principal: {"AWS": "*"} can grant
+access to any authenticated or anonymous caller on the internet, exposing the
+bucket's data to anyone who finds it.
+
+Deny statements are skipped because a Deny with a wildcard principal restricts
+access (for example, the standard enforce-TLS policy). Allow statements with a
+Condition are still flagged: only some conditions limit who can call, so they
+need human review.
 
 This check was derived from the S3 hardening phase of the AWS security lab,
 where bucket policies were locked to specific IAM principal ARNs only.
@@ -65,7 +69,13 @@ class S3PublicPolicyCheck(BaseCheck):
                 policy_response = s3.get_bucket_policy(Bucket=bucket_name)
                 policy = json.loads(policy_response["Policy"])
 
-                for statement in policy.get("Statement", []):
+                statements = policy.get("Statement", [])
+                if isinstance(statements, dict):
+                    statements = [statements]
+
+                for statement in statements:
+                    if statement.get("Effect") != "Allow":
+                        continue
                     principal = statement.get("Principal", {})
                     if self._is_public_principal(principal):
                         findings.append(Finding(

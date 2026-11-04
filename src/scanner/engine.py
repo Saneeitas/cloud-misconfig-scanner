@@ -43,7 +43,8 @@ class ScannerEngine:
                         result.findings.append(f)
             except Exception as e:
                 error_msg = f"Check {check.id} failed: {e}"
-                logger.warning(error_msg)
+                # Reported to the user by the CLI via result.errors.
+                logger.debug(error_msg)
                 result.errors.append(error_msg)
 
         return result

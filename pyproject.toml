@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "cloud-misconfig-scanner"
 version = "0.1.0"
-description = "Multi-cloud security misconfiguration scanner (AWS + Azure) — strictly read-only"
+description = "Read-only cloud security misconfiguration scanner (AWS checks today, Azure planned)"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

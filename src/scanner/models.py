@@ -66,3 +66,8 @@ class ScanResult:
     findings: list[Finding] = field(default_factory=list)
     checks_run: int = 0
     errors: list[str] = field(default_factory=list)
+
+    @property
+    def incomplete(self) -> bool:
+        """True if a clean result can't be trusted: a check failed or none ran."""
+        return bool(self.errors) or self.checks_run == 0

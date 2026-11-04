@@ -4,34 +4,28 @@ This module provides the architectural enforcement of the read-only guarantee
 for Azure SDK clients. Check implementations receive a ReadOnlyAzureClient
 and can ONLY call methods that begin with allowed prefixes (get, list).
 
-Any attempt to call a mutating method (create, update, delete, begin_) raises
-ReadOnlyViolationError immediately.
+Any other attribute access, including mutating methods (create, update, delete,
+begin_*), raises ReadOnlyViolationError immediately.
 """
 
 from scanner.clients.aws_client import ReadOnlyViolationError
 
 
 class ReadOnlyAzureServiceProxy:
-    """Proxy that intercepts Azure SDK client method calls and blocks mutations."""
+    """Proxy that allows only read methods, blocking everything else by default."""
 
     ALLOWED_PREFIXES = ("get", "list")
-    BLOCKED_PREFIXES = ("create", "update", "delete", "begin_create", "begin_delete")
 
     def __init__(self, raw_client: object):
         self._raw_client = raw_client
 
     def __getattr__(self, name: str):
-        # Block known mutating prefixes explicitly
-        if any(name.startswith(prefix) for prefix in self.BLOCKED_PREFIXES):
+        if not name.startswith(self.ALLOWED_PREFIXES):
             raise ReadOnlyViolationError(
-                f"Method '{name}' is a mutating operation. "
-                f"Only read-only methods (get*, list*) are allowed. "
+                f"Method '{name}' is not a read-only operation. "
+                f"Only methods starting with {self.ALLOWED_PREFIXES} are allowed. "
                 f"This scanner is strictly read-only by design."
             )
-        # Allow known read prefixes
-        if any(name.startswith(prefix) for prefix in self.ALLOWED_PREFIXES):
-            return getattr(self._raw_client, name)
-        # For properties and other non-method attributes, allow access
         return getattr(self._raw_client, name)
 
 

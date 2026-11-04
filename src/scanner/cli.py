@@ -8,7 +8,7 @@ from rich.console import Console
 from scanner.context import ScanContext
 from scanner.engine import ScannerEngine
 from scanner.formatters import format_json, format_table
-from scanner.models import Severity
+from scanner.models import ScanResult, Severity
 
 
 @click.group()
@@ -31,7 +31,7 @@ def main():
               type=click.Choice(["critical", "high", "medium", "low"], case_sensitive=False),
               help="Filter findings below this severity.")
 @click.option("--checks", default=None,
-              help="Comma-separated check IDs to run (e.g., AWS-S3-001,AWS-EC2-001).")
+              help="Comma-separated check IDs to run (e.g., AWS-S3-001,AWS-IAM-001).")
 def scan(provider, profile, region, subscription_id, output_format,
          output_file, severity_threshold, checks):
     """Run security misconfiguration checks against cloud resources."""
@@ -42,7 +42,7 @@ def scan(provider, profile, region, subscription_id, output_format,
     # Build scan context
     context = _build_context(provider, profile, region, subscription_id, console)
     if context is None:
-        sys.exit(1)
+        sys.exit(2)
 
     # Run engine
     engine = ScannerEngine(
@@ -67,10 +67,29 @@ def scan(provider, profile, region, subscription_id, output_format,
         else:
             click.echo(json_str)
 
-    # Exit code: 1 if findings exist (for CI gating)
+    _warn_if_incomplete(result, console)
+
+    # Exit codes for CI gating: 1 = findings, 2 = no findings but the scan
+    # can't be trusted, 0 = every selected check ran and found nothing.
     if result.findings:
         sys.exit(1)
+    if result.incomplete:
+        sys.exit(2)
     sys.exit(0)
+
+
+def _warn_if_incomplete(result: ScanResult, console: Console) -> None:
+    """Tell the user when a scan did not evaluate everything it was asked to."""
+    if not result.incomplete:
+        return
+    if result.checks_run == 0:
+        console.print("Scan incomplete: no checks ran, so nothing was evaluated.",
+                      style="bold yellow", markup=False)
+        return
+    console.print(f"Scan incomplete: {len(result.errors)} of {result.checks_run} checks "
+                  "failed, so results may be missing.", style="bold yellow", markup=False)
+    for error in result.errors:
+        console.print(f"  {error}", style="yellow", markup=False)
 
 
 def _build_context(provider: str, profile: str | None, region: str,

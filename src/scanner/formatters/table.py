@@ -19,7 +19,9 @@ def format_table(result: ScanResult, console: Console | None = None) -> None:
         console = Console()
 
     if not result.findings:
-        console.print("\n[green]✓ No findings — all checks passed.[/green]\n")
+        # Never report a pass unless every selected check actually ran.
+        if not result.incomplete:
+            console.print("\n[green]✓ No findings — all checks passed.[/green]\n")
         return
 
     table = Table(title="Scan Findings", show_lines=True)

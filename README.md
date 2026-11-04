@@ -21,7 +21,7 @@ s3.list_buckets()                # OK
 s3.delete_bucket(Bucket="demo")  # raises ReadOnlyViolationError
 ```
 
-The AWS proxy is an allowlist: only `describe_`, `get_`, `list_` and `head_` methods get through. It protects against mistakes in check code, but it is not a security boundary, so run the scanner with a [read-only IAM identity](#least-privilege-iam-policy) as well.
+Both proxies are allowlists: AWS clients only allow `describe_`, `get_`, `list_` and `head_` methods, and Azure clients only allow `get` and `list` methods. This protects against mistakes in check code, but it is not a security boundary, so run the scanner with a [read-only IAM identity](#least-privilege-iam-policy) as well.
 
 ## What it detects
 
@@ -122,13 +122,27 @@ scanner scan --provider aws --profile my-audit-profile --region us-east-1
 
 ### Use in a CI pipeline
 
-The exit code is `1` when any finding meets the threshold and `0` when none do, so a pipeline step can fail on serious issues:
+Any non-zero exit code fails the pipeline step, so it can gate a deployment on serious issues:
 
 ```bash
 scanner scan --provider aws --severity-threshold high --output json --output-file findings.json
 ```
 
-Exit code `0` doesn't yet prove that every check ran. See [Known limitations](#known-limitations) for how to handle this.
+| Exit code | Meaning |
+|---|---|
+| `0` | Every selected check ran, and none reported a finding at or above the threshold |
+| `1` | At least one finding at or above the threshold |
+| `2` | No findings, but the result can't be trusted: a check failed, no checks ran, or the command was invalid |
+
+A scan never reports a pass if a check failed, for example because credentials are missing:
+
+```console
+$ scanner scan --provider aws
+Scanning aws resources...
+Scan incomplete: 6 of 6 checks failed, so results may be missing.
+  Check AWS-IAM-002 failed: Unable to locate credentials
+  ...
+```
 
 ### Least-privilege IAM policy
 
@@ -174,7 +188,7 @@ Three design decisions shape the code:
 
 - **Safety is built into the structure.** Checks reach the cloud only through a read-only proxy passed in via `ScanContext`, so read-only behaviour doesn't rely on each check's author remembering it.
 - **Adding a check takes one file.** `CheckRegistry` finds every `BaseCheck` subclass in `checks/aws/` and `checks/azure/`, so there is no central list to edit.
-- **One failing check doesn't stop the scan.** The engine records the error and keeps going, and JSON output lists these errors in an `errors` array.
+- **A failing check can't pass as a clean result.** The engine records the error and keeps scanning. The CLI then reports the scan as incomplete and exits with code `2` unless it has findings to report, and JSON output lists the errors in an `errors` array.
 
 ```text
 src/scanner/
@@ -187,7 +201,22 @@ src/scanner/
 ├── clients/          # Read-only AWS and Azure wrappers
 ├── checks/aws/       # One file per check
 └── formatters/       # Rich table and JSON output
+tests/                # pytest suite using mocked AWS
 ```
+
+## Running the tests
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+The tests run against mocked AWS ([moto](https://github.com/getmoto/moto)), so they need no credentials or cloud account. They cover:
+
+- Every check, against both compliant and non-compliant resources
+- Both read-only proxies, including proof that a blocked call never reaches the account
+- Engine filtering and failure handling
+- CLI exit codes, including scans that must not be reported as a pass
 
 ## Adding a check
 
@@ -232,19 +261,16 @@ class OpenSSHCheck(BaseCheck):
 
 This is an early release, and a scanner's blind spots matter as much as its detections:
 
-- **Failed checks can look like a clean scan.** If every check fails, for example because credentials are missing, table output still says "all checks passed" and the exit code is `0`. Errors are printed to stderr, so in CI use JSON output and also fail when the `errors` array isn't empty.
-- **Azure has no checks yet.** `--provider azure` runs zero checks and reports "all checks passed", so it doesn't tell you anything about your Azure environment.
-- **The Azure guard is weaker than the AWS one.** It blocks known mutating prefixes rather than allowing only read methods, so calls such as `begin_update` and `regenerate_key` would get through. No current code calls them, and I plan to move it to an allowlist before adding Azure checks.
-- **`AWS-S3-001` can raise false positives.** It doesn't look at a statement's `Effect` or `Condition`, so a secure `Deny` statement with `Principal: "*"`, such as an enforce-TLS policy, is flagged as Critical.
+- **Azure has no checks yet.** `--provider azure` runs zero checks, so it reports an incomplete scan and exits with code `2`. `--provider all` currently evaluates AWS only.
+- **A clean result can still miss resources.** If a call fails on one resource, for example with `AccessDenied` on a single bucket, most checks skip that resource without counting it as an error. `AWS-S3-004` does the opposite and reports any error as a finding. A check is only reported as failed if an error stops the whole check.
 - **Large accounts may be only partly scanned.** IAM calls don't paginate yet, so users and policies past the first page of results are skipped.
-- **Some API errors are hidden.** Most checks silently skip a resource when a call fails, while `AWS-S3-004` reports any error as a finding, including `AccessDenied`.
+- **`AWS-S3-001` flags every wildcard `Allow`, even with a `Condition`.** Some conditions, such as `aws:PrincipalOrgID`, do limit access, so those findings need a human review. Flagging them is deliberate, since the alternative is missing a public bucket.
 - **`AWS-IAM-001` covers customer-managed policies only.** Inline policies aren't evaluated.
-- **There's no automated test suite yet.** I've run the checks by hand against mocked AWS resources, and adding tests is the next priority.
 
 ## Roadmap
 
-- [ ] Fix the limitations above, starting with failed checks that look like a clean scan
-- [ ] Add a `pytest` and `moto` test suite with compliant and non-compliant cases for every check
+- [ ] Report per-resource API errors instead of skipping them
+- [ ] Paginate IAM calls
 - [ ] Add GitHub Actions CI running `ruff`, `mypy` and `pytest`
 - [ ] Add AWS checks: `AWS-EC2-001` (SSH/RDP open to the internet) and `AWS-CT-001` (no multi-region CloudTrail)
 - [ ] Add Azure checks:
@@ -257,7 +283,7 @@ This is an early release, and a scanner's blind spots matter as much as its dete
 
 ## Tech stack
 
-Python 3.11+, boto3, Azure SDK for Python, Click, Rich, and moto for mocked AWS testing.
+Python 3.11+, boto3, Azure SDK for Python, Click, Rich, and pytest with moto for testing.
 
 ## Author
 
@@ -265,4 +291,4 @@ Python 3.11+, boto3, Azure SDK for Python, Click, Rich, and moto for mocked AWS 
 
 ## License
 
-MIT
+[MIT](LICENSE)
